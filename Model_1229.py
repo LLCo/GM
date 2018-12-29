@@ -1,4 +1,5 @@
 import tensorflow as tf
+from sklearn.utils import shuffle
 import numpy as np
 import pandas as pd
 import math
@@ -6,7 +7,28 @@ import time
 
 CLASS_NUM = 17
 BATCH_SIZE = 200
-EARLY_STOP_THRE = 900
+
+def __loc_yield(sample_size):
+    n_iterations = math.ceil(sample_size / BATCH_SIZE)
+    for i in range(n_iterations):
+        loc_0 = (BATCH_SIZE * i) % sample_size
+        loc_1 = np.min((loc_0 + BATCH_SIZE, sample_size))
+        yield loc_0, loc_1
+
+
+def __get_tensors(model_name):
+    graph = tf.get_default_graph()
+
+    y_place = graph.get_tensor_by_name("{}/y_palce:0".format(model_name))
+    X_place = graph.get_tensor_by_name("{}/x_place:0".format(model_name))
+    is_training_place = graph.get_tensor_by_name("{}/is_trainning_place:0".format(model_name))
+
+    loss = graph.get_tensor_by_name("{}/loss:0".format(model_name))
+    predict_proba = graph.get_tensor_by_name("{}/proba:0".format(model_name))
+    y_predict_tf = graph.get_tensor_by_name("{}/pre_label:0".format(model_name))
+    ac = graph.get_tensor_by_name("{}/ac:0".format(model_name))
+
+    return y_place, X_place, is_training_place, loss, predict_proba, y_predict_tf, ac
 
 
 def __cnn_layer(layer, filters, is_training, is_pool, cnn_name, bn_name):
@@ -24,6 +46,44 @@ def __cnn_layer(layer, filters, is_training, is_pool, cnn_name, bn_name):
     if is_pool:
         new_layer = tf.layers.max_pooling2d(inputs=new_layer, pool_size=[2, 2], strides=2)
     return new_layer
+
+
+def __get_train_op(model_name, learning_rate=0.001):
+    # Trainning Op Set
+    train_op = None
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    loss = tf.get_default_graph().get_tensor_by_name("{}/loss:0".format(model_name))
+    with tf.control_dependencies(update_ops):
+        train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)  # var_list=training_variables
+    return train_op
+
+
+def __training_one_epoch(train_set, valid_set, sess, train_op, model_name="Model", is_shuffle=False):
+    '''
+    这个方法需要完成的工作就是，在sess的基础之上，训练一个epoch，然后返回train和valid的精度。
+    '''
+    # Get data. 
+    X_train, y_train = train_set
+
+    # Get Tensors
+    y_place, X_place, is_training_place, loss, predict_proba, y_predict_tf, ac = __get_tensors(model_name)
+
+    train_num = y_train.shape[0]
+    iterations = train_num / BATCH_SIZE + 1
+    if is_shuffle:
+        X_train, y_train = shuffle(X_train, y_train)
+
+    for i_iteration, locs in enumerate(__loc_yield(train_num)):  # Training
+        loc_0, loc_1 = locs
+        X_train_batch = X_train[loc_0:loc_1, :, :, :]
+        y_train_batch = y_train[loc_0:loc_1, :]
+        sess.run(train_op, feed_dict={X_place: X_train_batch, 
+                                      y_place: y_train_batch, 
+                                      is_training_place: True})
+        
+    vali_ac, vali_loss = batch_vali(valid_set, sess, model_name)
+    # train_ac, train_loss = batch_vali(valid_set, sess, model_name)
+    return vali_ac, vali_loss
 
 
 def build_model(model_name):
@@ -79,84 +139,44 @@ def build_model(model_name):
     print('Model Build Success!')
 
 
-def training(train_set, valid_set, model_name="Model", epochs=10, learning_rate=0.001, restore_name=None):
-    # Get data. 
-    X_train, y_train = train_set
-    is_training = True
+def training(train_set, valid_set, model_name, epochs=10, learning_rate=0.001, early_stop=None, restore_name=None, is_shuffle=False):
 
-    # Get Tensors
-    graph = tf.get_default_graph()
-
-    y_place = graph.get_tensor_by_name("{}/y_palce:0".format(model_name))
-    X_place = graph.get_tensor_by_name("{}/x_place:0".format(model_name))
-    is_training_place = graph.get_tensor_by_name("{}/is_trainning_place:0".format(model_name))
-
-    loss = graph.get_tensor_by_name("{}/loss:0".format(model_name))
-    predict_proba = graph.get_tensor_by_name("{}/proba:0".format(model_name))
-    y_predict_tf = graph.get_tensor_by_name("{}/pre_label:0".format(model_name))
-    ac = graph.get_tensor_by_name("{}/ac:0".format(model_name))
-
-    # Set Variables
-    max_ac = -1
-    min_loss = np.inf
-    early_stop = 0
-    train_num = y_train.shape[0]
-    max_iteration = int(epochs * train_num / BATCH_SIZE)
-    model_saver_path = '../ckpt/{}.ckpt'.format(model_name)
-	
     # Trainning Op Set
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops):
-        train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)  # var_list=training_variables
+    train_op = __get_train_op(model_name, learning_rate)
+    min_loss = np.inf
+    min_epoch = -1
+    model_saver_path = "..\ckpt\{}.ckpt".format(model_name)
 
     # Sess Start! 
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
         sess.run(init)
-
-        # is Restore ?
         saver = tf.train.Saver(max_to_keep=1) # saver = tf.train.Saver(saver_dict, max_to_keep=1)
         if restore_name is not None:
-            saver.restore(sess, "ckpt\{}.ckpt".format(RESTORE_MODEL_NAME))
+            saver.restore(sess, "..\ckpt\{}.ckpt".format(restore_name))
 
-        start_time = time.time()
-        print('start training!')
+        for i_epoch in range(epochs):
+            vali_ac, vali_loss = __training_one_epoch(train_set, valid_set, sess, train_op, model_name=model_name, is_shuffle=is_shuffle)
+            print("epochs :", i_epoch, "Valid With AC:", vali_ac, "With Loss:", vali_loss)
 
-        for i_iteration in range(max_iteration):
-            batch_samples_loc = np.sort(np.random.choice(train_num, BATCH_SIZE, replace=False))
-            X_train_batch = X_train[batch_samples_loc, :, :, :]
-            y_train_batch = y_train[batch_samples_loc, :]
-
-            sess.run(train_step, feed_dict={X_place: X_train_batch, 
-                                            y_place: y_train_batch, 
-                                            is_training_place: True})
-			
-            if i_iteration % 50 == 0: # check at 50 it
-                # early_stop_code
-                if early_stop > EARLY_STOP_THRE:
-                    break
-                _ac, _loss = batch_vali(valid_set, sess, model_name)
-                early_stop += 50
-				
-                if _loss < min_loss:
-                    early_stop = 0
-                    min_loss = _loss
-                    print("Loss change at: ", i_iteration, "With AC: ", _ac, "With Loss: ", _loss)
+            if early_stop is not None:
+                if min_loss > vali_loss:
+                    min_loss = vali_loss
+                    min_epoch = i_epoch
                     saver.save(sess, model_saver_path)
 
-        print('Time use: ', time.time() - start_time)
+                if i_epoch - min_epoch == early_stop: 
+                    print("Early stop at epoch ", min_epoch)
+                    break
+
+        if early_stop is None:
+            saver.save(sess, model_saver_path)
 
 
 def batch_vali(data, sess, model_name):
     # Get Tensors
-    graph = tf.get_default_graph()
-
-    y_place = graph.get_tensor_by_name("{}/y_palce:0".format(model_name))
-    X_place = graph.get_tensor_by_name("{}/x_place:0".format(model_name))
-    is_training_place = graph.get_tensor_by_name("{}/is_trainning_place:0".format(model_name))
-
-    loss = graph.get_tensor_by_name("{}/loss:0".format(model_name))
-    ac = graph.get_tensor_by_name("{}/ac:0".format(model_name))
+    # Get Tensors
+    y_place, X_place, is_training_place, loss, predict_proba, y_predict_tf, ac = __get_tensors(model_name)
     
     # Get data
     X_valid, y_valid = data
@@ -164,31 +184,22 @@ def batch_vali(data, sess, model_name):
     # define parameters
     total_ac = 0
     total_loss = 0
-    
+    i = 0
+
     samples = y_valid.shape[0]
-    batch_iteration = math.ceil(samples / BATCH_SIZE)
-    for i in range(batch_iteration):
-        x_range = i*BATCH_SIZE
-        y_range = np.min(((i+1)*BATCH_SIZE, samples))
-        batch_ac, batch_loss = sess.run([ac, loss], 
-                                        feed_dict={X_place: X_valid[x_range:y_range, :, :, :], 
-                                                   y_place: y_valid[x_range:y_range, :],
-                                                   is_training_place: False})
+    for locs in __loc_yield(samples):
+        loc_0, loc_1 = locs
+        batch_ac, batch_loss = sess.run([ac, loss], feed_dict={X_place: X_valid[loc_0:loc_1, :, :, :], y_place: y_valid[loc_0:loc_1, :],is_training_place: False})
         total_ac += batch_ac
         total_loss += batch_loss
-    return total_ac/batch_iteration, total_loss/samples
+        i += 1
+    return total_ac / i, total_loss / samples
 
 
-def batch_predict(data, model_name):
+def batch_predict(data, model_name): # get proba (sample, classnum)
     # Get Tensors
-    graph = tf.get_default_graph()
+    y_place, X_place, is_training_place, loss, predict_proba, y_predict_tf, ac = __get_tensors(model_name)
 
-    X_place = graph.get_tensor_by_name("{}/x_place:0".format(model_name))
-    is_training_place = graph.get_tensor_by_name("{}/is_trainning_place:0".format(model_name))
-
-    predict_proba = graph.get_tensor_by_name("{}/proba:0".format(model_name))
-    y_predict_tf = graph.get_tensor_by_name("{}/pre_label:0".format(model_name))
-    
     # Get data
     X_test = data
 
