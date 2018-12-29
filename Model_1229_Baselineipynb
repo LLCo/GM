@@ -94,9 +94,9 @@
   },
   {
    "cell_type": "code",
-   "execution_count": 35,
+   "execution_count": 3,
    "metadata": {
-    "scrolled": false
+    "scrolled": true
    },
    "outputs": [
     {
@@ -167,7 +167,7 @@
   },
   {
    "cell_type": "code",
-   "execution_count": 32,
+   "execution_count": 6,
    "metadata": {},
    "outputs": [
     {
@@ -176,11 +176,17 @@
      "text": [
       "Model Build Start!\n",
       "Model Build Success!\n",
-      "epochs : 0 Valid With AC: 0.12580700089369923 With Loss: 4.382155102349775\n",
-      "epochs : 1 Valid With AC: 0.49701645822564433 With Loss: 1.899175987684923\n",
-      "epochs : 2 Valid With AC: 0.539333981915939 With Loss: 1.5501714830024111\n",
-      "epochs : 3 Valid With AC: 0.5959903479607638 With Loss: 1.4215851943535098\n",
-      "epochs : 4 Valid With AC: 0.5788961047968588 With Loss: 1.5918114170011357\n"
+      "epochs : 0 Valid With AC: 0.6162136256202193 With Loss: 1.3054363997729195\n",
+      "epochs : 1 Valid With AC: 0.638200571714354 With Loss: 1.3769340254170241\n",
+      "epochs : 2 Valid With AC: 0.6339145066324344 With Loss: 1.4240321337254942\n",
+      "epochs : 3 Valid With AC: 0.5971886973735715 With Loss: 1.603286709001178\n",
+      "epochs : 4 Valid With AC: 0.6034828818534032 With Loss: 1.6579199956668305\n",
+      "epochs : 5 Valid With AC: 0.6118730449479474 With Loss: 1.6321172713837995\n",
+      "epochs : 6 Valid With AC: 0.6087905395129496 With Loss: 1.7279509776830426\n",
+      "epochs : 7 Valid With AC: 0.5876467131878719 With Loss: 1.7783923259624237\n",
+      "epochs : 8 Valid With AC: 0.6098350596821998 With Loss: 1.9469587784006435\n",
+      "epochs : 9 Valid With AC: 0.59836065030295 With Loss: 1.8746792566984356\n",
+      "Training time using: 807.9498949050903\n"
      ]
     }
    ],
@@ -188,8 +194,8 @@
     "PRE_MODEL_prefix = \"1229_PRETRAINING\"\n",
     "PRE_MODEL_name = \"{}\".format(PRE_MODEL_prefix)\n",
     "my_model.build_model(PRE_MODEL_name)\n",
-    "my_model.training((s2_training[:50000,:,:,:], label_training[:50000,:]), \n",
-    "                  (s2_validation, label_validation), model_name=PRE_MODEL_name, epochs=5)"
+    "my_model.training((s2_training, label_training), (s2_validation, label_validation), \n",
+    "                  model_name=PRE_MODEL_name, epochs=10)"
    ]
   },
   {
@@ -268,7 +274,7 @@
   },
   {
    "cell_type": "code",
-   "execution_count": 50,
+   "execution_count": 5,
    "metadata": {
     "scrolled": true
    },
@@ -279,7 +285,7 @@
        "<module 'Model_1229' from 'E:\\\\Liulicong\\\\Kaggle\\\\sentinel\\\\src\\\\Model_1229.py'>"
       ]
      },
-     "execution_count": 50,
+     "execution_count": 5,
      "metadata": {},
      "output_type": "execute_result"
     }

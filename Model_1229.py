@@ -141,6 +141,7 @@ def build_model(model_name):
 
 def training(train_set, valid_set, model_name, epochs=10, learning_rate=0.001, early_stop=None, restore_name=None, is_shuffle=False):
 
+    start_time = time.time()
     # Trainning Op Set
     train_op = __get_train_op(model_name, learning_rate)
     min_loss = np.inf
@@ -171,8 +172,9 @@ def training(train_set, valid_set, model_name, epochs=10, learning_rate=0.001, e
 
         if early_stop is None:
             saver.save(sess, model_saver_path)
+    print("Training time using:", time.time() -start_time)
 
-
+	
 def batch_vali(data, sess, model_name):
     # Get Tensors
     # Get Tensors
